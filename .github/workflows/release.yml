@@ -1,184 +1,278 @@
+# .github/workflows/release.yml
+#
+# Triggered when you push a version tag:
+#   git tag v0.2.0 && git push --tags
+#
+# Builds three platform artifacts in parallel, uploads them to a GitHub
+# release, then auto-patches the Homebrew tap formula with the new SHA256.
+#
+# ── Artifacts produced ────────────────────────────────────────────────────────
+#   macOS arm64  → analogdata-esp-macos-arm64-v0.x.x.tar.gz  (Homebrew)
+#   Linux amd64  → analogdata-esp_0.x.x_amd64.deb            (apt / dpkg)
+#   Windows x64  → analogdata-esp-setup.exe                  (installer wizard)
+#
+# ── Required GitHub secrets ───────────────────────────────────────────────────
+#   HOMEBREW_TAP_TOKEN — GitHub PAT (classic) with repo scope on
+#                        analogdata/homebrew-analogdata-esp
+#                        Create at: github.com → Settings → Developer settings
+#                        → Personal access tokens → Generate new token (classic)
+#                        → tick "repo" → copy the token
+#                        Add at: github.com/analogdata/analogdata-esp
+#                        → Settings → Secrets and variables → Actions → New secret
+#
+# ── Optional GitHub variables (enable extra publish steps) ───────────────────
+#   PACKAGECLOUD_ENABLED = true  →  also pushes .deb to Packagecloud APT repo
+#                                   (also needs PACKAGECLOUD_TOKEN secret)
+# ─────────────────────────────────────────────────────────────────────────────
+
 name: Release
 
-# Triggers on version tags: git tag v0.1.0 && git push --tags
 on:
   push:
     tags:
-      - "v*.*.*"
+      - 'v*.*.*'    # v0.1.0, v0.2.0, etc.
 
+# Allow writing to GitHub releases
 permissions:
-  contents: write   # needed to create GitHub Releases
+  contents: write
 
 jobs:
-  # ──────────────────────────────────────────────
-  # Build standalone binaries on each platform
-  # ──────────────────────────────────────────────
-  build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            artifact_name: analogdata-esp-linux
-            asset_name:    analogdata-esp-linux-x86_64
-          - os: macos-14          # Apple Silicon runner
-            artifact_name: analogdata-esp-macos
-            asset_name:    analogdata-esp-macos-arm64
-          - os: windows-2022
-            artifact_name: analogdata-esp-windows.exe
-            asset_name:    analogdata-esp-windows-x86_64.exe
+
+  # ── macOS Apple Silicon (arm64) ─────────────────────────────────────────────
+  # Separate job (not matrix) so SHA256 can be forwarded to update-homebrew.
+  build-macos:
+    name: Build macOS arm64
+    runs-on: macos-14          # GitHub's M1 Apple Silicon runner
+
+    outputs:
+      # These outputs are consumed by the update-homebrew job
+      version: ${{ steps.meta.outputs.version }}
+      sha256:  ${{ steps.tarball.outputs.sha256 }}
+      tarball: ${{ steps.tarball.outputs.name }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Extract version from tag
+        id: meta
+        # GITHUB_REF_NAME = "v0.2.0"
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Install dependencies + PyInstaller
+      - name: Install Python dependencies
         run: uv sync --dev
 
-      # ── Build ──────────────────────────────────
-      - name: Build binary (PyInstaller)
-        run: uv run pyinstaller analogdata-esp.spec
+      - name: Build onedir binary
+        run: uv run pyinstaller analogdata-esp.spec --noconfirm
 
-      # ── Linux: create .deb package ─────────────
-      - name: Package .deb (Linux)
-        if: runner.os == 'Linux'
+      - name: Create release tarball + compute SHA256
+        id: tarball
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          DEB_DIR="packaging/debian/analogdata-esp_${VERSION}_amd64"
+          VERSION="${{ steps.meta.outputs.version }}"
+          TARBALL="analogdata-esp-macos-arm64-${VERSION}.tar.gz"
 
-          mkdir -p "${DEB_DIR}/DEBIAN"
-          mkdir -p "${DEB_DIR}/usr/local/bin"
+          # Bundle the entire onedir directory (binary + _internal/)
+          tar -czf "dist/${TARBALL}" -C dist analogdata-esp
 
-          # Copy binary
-          cp dist/analogdata-esp "${DEB_DIR}/usr/local/bin/analogdata-esp"
-          chmod +x "${DEB_DIR}/usr/local/bin/analogdata-esp"
+          # SHA256 is used by Homebrew to verify the download
+          SHA=$(shasum -a 256 "dist/${TARBALL}" | awk '{print $1}')
+          echo "name=${TARBALL}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA}"   >> "$GITHUB_OUTPUT"
+          echo "Tarball : ${TARBALL}"
+          echo "SHA256  : ${SHA}"
 
-          # Write control file
-          cat > "${DEB_DIR}/DEBIAN/control" <<EOF
-          Package: analogdata-esp
-          Version: ${VERSION}
-          Section: devel
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Rajath Kumar <hello@analogdata.io>
-          Homepage: https://github.com/analogdata/analogdata-esp
-          Description: Analog Data ESP-IDF CLI
-           ESP-IDF project scaffolding and AI agent for embedded engineers.
-           Supports ESP32, ESP32-S2/S3, ESP32-C3/C6, and more.
-          EOF
-
-          dpkg-deb --build "${DEB_DIR}"
-          mv "${DEB_DIR}.deb" "dist/analogdata-esp_${VERSION}_amd64.deb"
-          echo "DEB_FILE=dist/analogdata-esp_${VERSION}_amd64.deb" >> $GITHUB_ENV
-
-      # ── Windows: create NSIS installer ─────────
-      - name: Build NSIS installer (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
-          $nsisDir = "packaging/windows"
-
-          # Pass version into NSIS via defines file
-          Set-Content -Path "$nsisDir/version.nsh" -Value "!define VERSION `"$version`""
-
-          # Install NSIS (pre-installed on windows-2022 runners)
-          makensis /V2 "$nsisDir/installer.nsi"
-
-          # Move output
-          Move-Item "$nsisDir/analogdata-esp-setup.exe" "dist/analogdata-esp-$version-setup.exe"
-          echo "EXE_FILE=dist/analogdata-esp-$version-setup.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      # ── Upload build artifact ───────────────────
-      - name: Upload binary artifact
+      - name: Upload artifact for release job
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: dist/analogdata-esp*
+          name: macos-tarball
+          path: dist/${{ steps.tarball.outputs.name }}
           retention-days: 1
 
-  # ──────────────────────────────────────────────
-  # Create GitHub Release with all artifacts
-  # ──────────────────────────────────────────────
-  release:
-    name: Create GitHub Release
-    needs: build
+  # ── Linux Ubuntu/Debian (amd64) ─────────────────────────────────────────────
+  build-linux:
+    name: Build Linux .deb (amd64)
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Extract version from tag (strip leading 'v')
+        id: meta
+        # dpkg versions must not start with 'v' — strip it: v0.2.0 → 0.2.0
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install Python dependencies
+        run: uv sync --dev
+
+      - name: Build onedir binary
+        run: uv run pyinstaller analogdata-esp.spec --noconfirm
+
+      - name: Build .deb package
+        run: |
+          chmod +x packaging/debian/build-deb.sh
+          ./packaging/debian/build-deb.sh "${{ steps.meta.outputs.version }}"
+
+      - name: Upload artifact for release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: dist/analogdata-esp_${{ steps.meta.outputs.version }}_amd64.deb
+          retention-days: 1
+
+  # ── Windows x64 ─────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows installer (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag (strip leading 'v')
+        id: meta
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install Python dependencies
+        run: uv sync --dev
+
+      - name: Build onedir binary
+        run: uv run pyinstaller analogdata-esp.spec --noconfirm
+
+      - name: Install NSIS (installer builder)
+        # Chocolatey is always pre-installed on windows-latest runners
+        run: choco install nsis --no-progress -y
+
+      - name: Build Windows installer with NSIS
+        # /DVERSION injects the version string into the NSIS script
+        run: makensis /DVERSION="${{ steps.meta.outputs.version }}" packaging\windows\installer.nsi
+
+      - name: Upload artifact for release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: analogdata-esp-setup.exe
+          retention-days: 1
+
+  # ── Create GitHub Release with all three artifacts ───────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist-all
           merge-multiple: true
 
-      - name: List artifacts
+      - name: List artifacts to be released
         run: find dist-all -type f | sort
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: "analogdata-esp ${{ github.ref_name }}"
+          generate_release_notes: true
           body: |
             ## analogdata-esp ${{ github.ref_name }}
 
             ### Install
 
-            **macOS (Homebrew)**
+            **macOS** (Apple Silicon · M1/M2/M3/M4)
             ```bash
-            brew tap analogdata/tap
+            brew tap analogdata/analogdata-esp
             brew install analogdata-esp
             ```
 
-            **Linux (Debian / Ubuntu)**
+            **Linux** (Ubuntu / Debian)
             ```bash
             curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/analogdata-esp_${{ github.ref_name }}_amd64.deb
             sudo dpkg -i analogdata-esp_*.deb
             ```
 
             **Windows**
-            Download `analogdata-esp-*-setup.exe` below and run the installer.
-
-            **Python (all platforms)**
-            ```bash
-            pip install analogdata-esp
-            ```
+            Download `analogdata-esp-setup.exe` below and run the installer.
 
             ---
             Built from `${{ github.sha }}`
-          files: dist-all/**
+          files: dist-all/*
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
 
-  # ──────────────────────────────────────────────
-  # Publish to PyPI
-  # ──────────────────────────────────────────────
+  # ── Auto-patch Homebrew tap formula ─────────────────────────────────────────
+  # Updates Formula/analogdata-esp.rb in the tap repo with the new version
+  # and SHA256 so `brew upgrade analogdata-esp` works for all users.
+  update-homebrew:
+    name: Update Homebrew tap formula
+    needs: build-macos          # needs sha256 and tarball name outputs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: analogdata/homebrew-analogdata-esp
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Patch formula with new version and SHA256
+        run: |
+          VERSION="${{ needs.build-macos.outputs.version }}"
+          SHA256="${{ needs.build-macos.outputs.sha256 }}"
+          TARBALL="${{ needs.build-macos.outputs.tarball }}"
+          URL="https://github.com/analogdata/analogdata-esp/releases/download/${VERSION}/${TARBALL}"
+
+          echo "Patching formula:"
+          echo "  version : ${VERSION#v}"
+          echo "  url     : ${URL}"
+          echo "  sha256  : ${SHA256}"
+
+          # Patch the three lines that change on every release
+          sed -i \
+            -e "s|version \"[^\"]*\"|version \"${VERSION#v}\"|" \
+            -e "s|url \"https://github.com/analogdata/analogdata-esp/releases/.*arm64.*\"|url \"${URL}\"|" \
+            -e "s|sha256 \"[a-f0-9]*\"|sha256 \"${SHA256}\"|" \
+            homebrew-tap/Formula/analogdata-esp.rb
+
+          echo "── Updated formula ──"
+          cat homebrew-tap/Formula/analogdata-esp.rb
+
+      - name: Commit and push
+        run: |
+          cd homebrew-tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/analogdata-esp.rb
+          git commit -m "Release ${{ needs.build-macos.outputs.version }}"
+          git push
+
+  # ── Publish to PyPI ──────────────────────────────────────────────────────────
+  # Uses OIDC trusted publishing — no API key or secret needed.
+  # One-time setup at pypi.org: Publishing → Trusted Publishers → Add
+  #   Owner: analogdata · Repo: analogdata-esp · Workflow: release.yml
   pypi:
     name: Publish to PyPI
-    needs: build
+    needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/analogdata-esp
     permissions:
-      id-token: write   # OIDC trusted publisher — no API key needed
+      id-token: write      # required for OIDC trusted publisher
+
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -189,32 +283,34 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-  # ──────────────────────────────────────────────
-  # Upload .deb to Packagecloud APT repo
-  # Requires PACKAGECLOUD_TOKEN secret to be set.
-  # If secret is absent the step is skipped cleanly.
-  # ──────────────────────────────────────────────
+  # ── Publish .deb to Packagecloud APT repo ───────────────────────────────────
+  # Only runs when you set the PACKAGECLOUD_ENABLED variable to "true".
+  # This lets users do: sudo apt install analogdata-esp
+  # Setup: create a free account at packagecloud.io, create a repo named
+  # "analogdata-esp", copy your API token into the PACKAGECLOUD_TOKEN secret.
   packagecloud:
     name: Publish to Packagecloud APT
-    needs: build
+    needs: build-linux
     runs-on: ubuntu-latest
-    if: ${{ vars.PACKAGECLOUD_ENABLED == 'true' }}
+    if: vars.PACKAGECLOUD_ENABLED == 'true'
+
     steps:
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
-          name: analogdata-esp-linux
+          name: linux-deb
           path: dist/
 
       - name: Install package_cloud gem
         run: gem install package_cloud --no-document
 
-      - name: Push .deb to Packagecloud
+      - name: Push .deb to Packagecloud (Ubuntu + Debian)
         env:
           PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           DEB="dist/analogdata-esp_${VERSION}_amd64.deb"
+          # Push to Ubuntu LTS and current Debian stable
+          package_cloud push analogdata/analogdata-esp/ubuntu/noble   "${DEB}"
           package_cloud push analogdata/analogdata-esp/ubuntu/jammy   "${DEB}"
-          package_cloud push analogdata/analogdata-esp/ubuntu/focal   "${DEB}"
           package_cloud push analogdata/analogdata-esp/debian/bookworm "${DEB}"

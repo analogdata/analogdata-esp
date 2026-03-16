@@ -20,14 +20,11 @@ TARBALL_NAME="analogdata-esp-${PLATFORM}-${VERSION}.tar.gz"
 
 echo "🔨 Building analogdata-esp ${VERSION} for ${PLATFORM}..."
 
-# Activate venv
-source .venv/bin/activate
-
 # Clean previous build
 rm -rf dist/analogdata-esp build/
 
-# Build onedir binary
-pyinstaller analogdata-esp.spec --noconfirm
+# Build onedir binary (uv run uses the project's virtual environment automatically)
+uv run pyinstaller analogdata-esp.spec --noconfirm
 
 echo "📦 Creating tarball: dist/${TARBALL_NAME}"
 
