@@ -257,13 +257,25 @@ jobs:
           git push
 
   # ── Publish to PyPI ──────────────────────────────────────────────────────────
-  # Uses OIDC trusted publishing — no API key or secret needed.
-  # One-time setup at pypi.org: Publishing → Trusted Publishers → Add
-  #   Owner: analogdata · Repo: analogdata-esp · Workflow: release.yml
+  # Disabled by default. Enable by setting PYPI_ENABLED = true in:
+  #   github.com/analogdata/analogdata-esp → Settings → Secrets and variables
+  #   → Actions → Variables → New repository variable
+  #
+  # One-time PyPI setup (do this before enabling):
+  #   1. Create account at pypi.org
+  #   2. Go to pypi.org → Your projects → Publishing → Add a new publisher
+  #   3. Fill in:
+  #        PyPI project name : analogdata-esp
+  #        Owner             : analogdata
+  #        Repository        : analogdata-esp
+  #        Workflow name     : release.yml
+  #        Environment name  : pypi
+  #   4. Set PYPI_ENABLED = true in GitHub repo variables
   pypi:
     name: Publish to PyPI
     needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
+    if: vars.PYPI_ENABLED == 'true'
     environment:
       name: pypi
       url: https://pypi.org/p/analogdata-esp
