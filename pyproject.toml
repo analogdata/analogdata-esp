@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "analogdata-esp"
+version = "0.1.0"
+description = "Analog Data CLI — ESP-IDF project scaffolding and AI agent for embedded engineers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Rajath Kumar", email = "hello@analogdata.io" }
+]
+keywords = ["esp32", "esp-idf", "embedded", "cli", "ai-agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Topic :: Software Development :: Embedded Systems",
+    "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "httpx>=0.27.0",
+    "jinja2>=3.1.0",
+    "pyserial>=3.5",
+    "python-dotenv>=1.0.0",
+    "google-generativeai>=0.8.0",
+    "openai>=1.0.0",
+    "anthropic>=0.30.0",
+]
+
+[project.scripts]
+analogdata-esp = "analogdata_esp.main:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "coverage>=7.0.0",
+    "mkdocs-material>=9.5.0",
+    "mkdocstrings[python]>=0.24.0",
+    "pyinstaller>=6.0.0",
+    "hatch>=1.12.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["analogdata_esp"]
+
+[dependency-groups]
+dev = [
+    "coverage>=7.13.4",
+    "pyinstaller>=6.19.0",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+]
+
+[tool.hatch.build]
+include = [
+    "analogdata_esp/",
+    "templates/",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["analogdata_esp"]
+omit = ["*/__pycache__/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

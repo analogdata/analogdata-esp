@@ -1,0 +1,15 @@
+# ESP-IDF build output
+build/
+sdkconfig.old
+
+# Dependencies
+managed_components/
+
+# IDE
+.cache/
+
+# macOS
+.DS_Store
+
+# Keep sdkconfig in git (it's your chip config)
+# !sdkconfig

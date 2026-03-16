@@ -1,0 +1,46 @@
+{
+  // ── ESP-IDF Extension ──────────────────────────────────────────
+  "idf.espIdfPath": "{{ idf_path }}",
+  "idf.toolsPath": "{{ tools_path }}",
+  "idf.pythonBinPath": "{{ python_bin }}",
+  "idf.adapterTargetName": "{{ target }}",
+  "idf.openOcdConfigs": ["target/{{ target }}.cfg"],
+
+  // ── CMake Tools: disable — ESP-IDF has its own build system ───
+  "cmake.configureOnOpen": false,
+  "cmake.autoSelectActiveFolder": false,
+  "cmake.enableAutomaticKitScan": false,
+  "cmake.automaticReconfigure": false,
+
+  // ── C/C++ IntelliSense ─────────────────────────────────────────
+  "C_Cpp.intelliSenseEngine": "default",
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+  "C_Cpp.errorSquiggles": "enabled",
+
+  // ── Editor: embedded-friendly settings ────────────────────────
+  "editor.tabSize": 4,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+  "editor.rulers": [100],
+  "editor.formatOnSave": false,
+
+  // ── File excludes: hide build noise ───────────────────────────
+  "files.exclude": {
+    "**/.git": true,
+    "**/build": false,
+    "**/.cache": true
+  },
+  "files.associations": {
+    "*.h": "c",
+    "sdkconfig": "properties",
+    "sdkconfig.old": "properties",
+    "CMakeLists.txt": "cmake"
+  },
+
+  // ── Search: exclude build artifacts ───────────────────────────
+  "search.exclude": {
+    "**/build": true,
+    "**/.cache": true,
+    "**/managed_components": true
+  }
+}

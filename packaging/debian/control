@@ -1,0 +1,15 @@
+Package: analogdata-esp
+Version: 0.1.0
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: Rajath Kumar <hello@analogdata.io>
+Homepage: https://github.com/analogdata/analogdata-esp
+Description: Analog Data ESP-IDF CLI for embedded engineers
+ ESP-IDF project scaffolding and AI agent for embedded engineers.
+ Supports ESP32, ESP32-S2/S3, ESP32-C3/C6/H2/P4 targets.
+ .
+ Commands:
+   analogdata-esp new <project>     Scaffold a new ESP-IDF project
+   analogdata-esp agent "<question>" Ask the AI agent (Ollama or Gemini)
+   analogdata-esp doctor            Check ESP-IDF environment health

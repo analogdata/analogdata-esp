@@ -1,0 +1,220 @@
+name: Release
+
+# Triggers on version tags: git tag v0.1.0 && git push --tags
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write   # needed to create GitHub Releases
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Build standalone binaries on each platform
+  # ──────────────────────────────────────────────
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact_name: analogdata-esp-linux
+            asset_name:    analogdata-esp-linux-x86_64
+          - os: macos-14          # Apple Silicon runner
+            artifact_name: analogdata-esp-macos
+            asset_name:    analogdata-esp-macos-arm64
+          - os: windows-2022
+            artifact_name: analogdata-esp-windows.exe
+            asset_name:    analogdata-esp-windows-x86_64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies + PyInstaller
+        run: uv sync --dev
+
+      # ── Build ──────────────────────────────────
+      - name: Build binary (PyInstaller)
+        run: uv run pyinstaller analogdata-esp.spec
+
+      # ── Linux: create .deb package ─────────────
+      - name: Package .deb (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DEB_DIR="packaging/debian/analogdata-esp_${VERSION}_amd64"
+
+          mkdir -p "${DEB_DIR}/DEBIAN"
+          mkdir -p "${DEB_DIR}/usr/local/bin"
+
+          # Copy binary
+          cp dist/analogdata-esp "${DEB_DIR}/usr/local/bin/analogdata-esp"
+          chmod +x "${DEB_DIR}/usr/local/bin/analogdata-esp"
+
+          # Write control file
+          cat > "${DEB_DIR}/DEBIAN/control" <<EOF
+          Package: analogdata-esp
+          Version: ${VERSION}
+          Section: devel
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Rajath Kumar <hello@analogdata.io>
+          Homepage: https://github.com/analogdata/analogdata-esp
+          Description: Analog Data ESP-IDF CLI
+           ESP-IDF project scaffolding and AI agent for embedded engineers.
+           Supports ESP32, ESP32-S2/S3, ESP32-C3/C6, and more.
+          EOF
+
+          dpkg-deb --build "${DEB_DIR}"
+          mv "${DEB_DIR}.deb" "dist/analogdata-esp_${VERSION}_amd64.deb"
+          echo "DEB_FILE=dist/analogdata-esp_${VERSION}_amd64.deb" >> $GITHUB_ENV
+
+      # ── Windows: create NSIS installer ─────────
+      - name: Build NSIS installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $nsisDir = "packaging/windows"
+
+          # Pass version into NSIS via defines file
+          Set-Content -Path "$nsisDir/version.nsh" -Value "!define VERSION `"$version`""
+
+          # Install NSIS (pre-installed on windows-2022 runners)
+          makensis /V2 "$nsisDir/installer.nsi"
+
+          # Move output
+          Move-Item "$nsisDir/analogdata-esp-setup.exe" "dist/analogdata-esp-$version-setup.exe"
+          echo "EXE_FILE=dist/analogdata-esp-$version-setup.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      # ── Upload build artifact ───────────────────
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/analogdata-esp*
+          retention-days: 1
+
+  # ──────────────────────────────────────────────
+  # Create GitHub Release with all artifacts
+  # ──────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-all
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find dist-all -type f | sort
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "analogdata-esp ${{ github.ref_name }}"
+          body: |
+            ## analogdata-esp ${{ github.ref_name }}
+
+            ### Install
+
+            **macOS (Homebrew)**
+            ```bash
+            brew tap analogdata/tap
+            brew install analogdata-esp
+            ```
+
+            **Linux (Debian / Ubuntu)**
+            ```bash
+            curl -LO https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/analogdata-esp_${{ github.ref_name }}_amd64.deb
+            sudo dpkg -i analogdata-esp_*.deb
+            ```
+
+            **Windows**
+            Download `analogdata-esp-*-setup.exe` below and run the installer.
+
+            **Python (all platforms)**
+            ```bash
+            pip install analogdata-esp
+            ```
+
+            ---
+            Built from `${{ github.sha }}`
+          files: dist-all/**
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # ──────────────────────────────────────────────
+  # Publish to PyPI
+  # ──────────────────────────────────────────────
+  pypi:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/analogdata-esp
+    permissions:
+      id-token: write   # OIDC trusted publisher — no API key needed
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Build wheel + sdist
+        run: uvx hatch build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ──────────────────────────────────────────────
+  # Upload .deb to Packagecloud APT repo
+  # Requires PACKAGECLOUD_TOKEN secret to be set.
+  # If secret is absent the step is skipped cleanly.
+  # ──────────────────────────────────────────────
+  packagecloud:
+    name: Publish to Packagecloud APT
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ vars.PACKAGECLOUD_ENABLED == 'true' }}
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: analogdata-esp-linux
+          path: dist/
+
+      - name: Install package_cloud gem
+        run: gem install package_cloud --no-document
+
+      - name: Push .deb to Packagecloud
+        env:
+          PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DEB="dist/analogdata-esp_${VERSION}_amd64.deb"
+          package_cloud push analogdata/analogdata-esp/ubuntu/jammy   "${DEB}"
+          package_cloud push analogdata/analogdata-esp/ubuntu/focal   "${DEB}"
+          package_cloud push analogdata/analogdata-esp/debian/bookworm "${DEB}"

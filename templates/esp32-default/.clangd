@@ -1,0 +1,23 @@
+CompileFlags:
+  Remove:
+    # Xtensa GCC-specific flags that clangd doesn't understand
+    - -mlongcalls
+    - -mtext-section-literals
+    - -fno-tree-switch-conversion
+    - -fstrict-volatile-bitfields
+    - -fno-shrink-wrap
+    - -mfix-esp32-psram-cache-issue
+    - -mfix-esp32-psram-cache-strategy=*
+    - --sysroot=*
+    - -fno-lto
+    - -mlong-calls
+    - -mabi=*
+    - -march=xtensa*
+  Add:
+    - --target=xtensa-esp32-elf
+
+Diagnostics:
+  UnusedIncludes: None
+  # Suppress cross-compile false positives
+  Suppress:
+    - pp_file_not_found

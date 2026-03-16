@@ -1,0 +1,55 @@
+site_name: analogdata-esp
+site_description: ESP-IDF CLI for embedded engineers — by Analog Data
+site_url: https://docs.analogdata.io/esp-cli
+repo_url: https://github.com/analogdata/analogdata-esp
+repo_name: analogdata/analogdata-esp
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: cyan
+      accent: cyan
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.tabs
+    - navigation.instant
+    - content.code.copy
+    - content.code.annotate
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/install.md
+    - Quick Start: getting-started/quickstart.md
+    - Local Install & Dev Setup: getting-started/local-install.md
+  - Configuration:
+    - Overview: configuration/index.md
+    - ESP-IDF Setup: configuration/idf-setup.md
+    - AI Providers: configuration/ai-providers.md
+  - Commands:
+    - new: commands/new.md
+    - agent: commands/agent.md
+    - doctor: commands/doctor.md
+  - AI Agent:
+    - Overview: agent/overview.md
+    - Local Setup (Ollama): agent/local.md
+    - Cloud Setup (Gemini): agent/cloud.md
+  - Packaging:
+    - Overview: packaging/overview.md
+    - macOS: packaging/macos.md
+    - Linux: packaging/linux.md
+    - Windows: packaging/windows.md
+  - Development:
+    - Testing: development/testing.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list

@@ -1,0 +1,28 @@
+{
+  "configurations": [
+    {
+      "name": "ESP-IDF",
+      "compilerPath": "${env:HOME}/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20251107/xtensa-esp-elf/bin/xtensa-esp32-elf-gcc",
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "${env:HOME}/.espressifforwindsurf/v5.5.3/esp-idf/components/**"
+      ],
+      "defines": [
+        "ESP_PLATFORM",
+        "IDF_VER=\"v5.5.3\""
+      ],
+      "intelliSenseMode": "gcc-arm",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "browse": {
+        "path": [
+          "${workspaceFolder}",
+          "${env:HOME}/.espressifforwindsurf/v5.5.3/esp-idf/components"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ],
+  "version": 4
+}
