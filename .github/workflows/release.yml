@@ -147,8 +147,11 @@ jobs:
         run: uv run pyinstaller analogdata-esp.spec --noconfirm
 
       - name: Install NSIS (installer builder)
-        # Chocolatey is always pre-installed on windows-latest runners
-        run: choco install nsis --no-progress -y
+        # Chocolatey installs NSIS but doesn't refresh PATH in the current session.
+        # We explicitly add the NSIS directory to GITHUB_PATH so the next step finds makensis.
+        run: |
+          choco install nsis --no-progress -y
+          echo "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build Windows installer with NSIS
         # /DVERSION injects the version string into the NSIS script
